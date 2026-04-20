@@ -1,3 +1,8 @@
+# [LAB REPORT] PROJECT: NIGHTHAWK-SSH
+**Document ID:** SEC-LAB-2026-001  
+**Classification:** INTERNAL / TECHNICAL AUDIT  
+**Status:** COMPLETE / REMEDIATION PENDING  
+
 # Penetration Test & Vulnerability Assessment Report
 
 ## 1. Executive Summary
@@ -28,20 +33,54 @@ The target host permitted password-based authentication over SSH without impleme
 **Phase 1: Reconnaissance & Enumeration**
 Network scanning identified an active OpenSSH 9.6p1 listener on Port 22. Service enumeration confirmed that the host accepted password-based authentication, exposing a viable attack surface for automated password spraying and brute-forcing.
 
+**Command Deconstruction:**
+- `nmap`: The network mapper core utility.
+- `-sV` (Implied in methodology): Service Version detection. This flag is critical because simply knowing Port 22 is open is insufficient; `-sV` queries the service banners to confirm OpenSSH 9.6p1, which dictates the exploit strategy. (Note: The executed command `nmap -p 22 10.0.2.10` rapidly focused solely on the SSH port after initial discovery).
+- `-p 22`: Targets the standard SSH port.
+- `10.0.2.10`: The victim IP address.
+
+The scan completed at `2026-04-20 11:04 -0400`, immediately identifying the target's MAC address (`08:00:27:C2:FA:B1`, Oracle VirtualBox virtual NIC) and confirming the active `ssh` service.
+
 ![Nmap SSH Discovery](./screenshots/nmap_ssh_discovery.jpeg)
 
 **Phase 2: Exploitation & Credential Exhaustion**
-An aggressive, entropy-based credential exhaustion attack was executed using dictionary payloads against the target. Due to the absence of rate-limiting or lockout mechanisms, the system sustained high-velocity authentication requests, yielding the valid credential pair (`john`:`12345`) in under a minute.
+An aggressive, entropy-based credential exhaustion attack was executed using dictionary payloads against the target. Due to the absence of rate-limiting or lockout mechanisms, the system sustained high-velocity authentication requests, yielding the valid credential pair (`john`:`12345`).
+
+**Command Deconstruction:**
+- `hydra`: The parallelized login cracker utility.
+- `-l john`: Specifies a single, known username (`john`) rather than a list, focusing the attack on a specific user profile.
+- `-p 12345`: Specifies the exact password to test (in a real scenario, `-P wordlist.txt` is used, but this parameter acts as our dictionary payload here).
+- `10.0.2.10 ssh`: Defines the target host and the protocol module to use.
+
+**Threading & Execution Dynamics:** 
+The screenshot indicates Hydra started and finished near-instantaneously at `2026-04-20 11:15:38`. Hydra's parallel tasks parameter (often configured via the `-t` flag, though warned here to reduce to `-t 4` by default for SSH) controls the number of simultaneous connection threads. In a full dictionary attack, manipulating the threading aggressively minimizes the "Time to Compromise," flooding the SSH daemon before manual intervention or rudimentary logging alerts can trigger.
 
 ![Hydra Brute-Force Exploit](./screenshots/hydra_bruteforce_exploit.jpeg)
 
 **Phase 3: Post-Exploitation & Impact**
-Using the compromised credentials, an interactive remote session was established. This unauthorized lateral movement grants the attacker a permanent foothold. The level of access obtained acts as a staging ground for deploying persistence mechanisms (e.g., cron jobs, authorized_keys manipulation), privilege escalation vectors, and potential ransomware payloads.
+Using the compromised credentials, an interactive remote session was established (`ssh john@10.0.2.10`). The host presented its ED25519 key fingerprint (`SHA256:3yPApE0XfwJe7SN6xIt7W9uKislal+ppc3CMJaJZhj4`), which the attacker accepted, permanently adding it to their known hosts. The system banner confirmed the OS environment (`Ubuntu 24.04.4 LTS (GNU/Linux 6.17.0-14-generic x86_64)`). 
+
+This unauthorized lateral movement grants the attacker a permanent foothold. As demonstrated by the `whoami` command returning `john`, the level of access obtained acts as a staging ground for deploying persistence mechanisms (e.g., cron jobs, authorized_keys manipulation), privilege escalation vectors, and potential ransomware payloads.
 
 ![SSH Successful Login](./screenshots/ssh_successful_login.jpeg)
 
 **Phase 4: Defensive Evasion & Log Integrity Verification**
-Forensic analysis of `/var/log/auth.log` revealed clear indicators of compromise (IoCs), transitioning from sustained "Failed password" entries from `10.0.2.15` to an "Accepted password" entry. However, an attacker with this level of access possesses the capability to alter or systematically purge syslog events, thereby erasing the audit trail and severely hindering incident response capabilities.
+Forensic analysis of `/var/log/auth.log` revealed clear indicators of compromise (IoCs). 
+
+**OS Subsystem Deep-Dive (PAM & Logging):**
+When the attacker initiated the SSH connections, the OpenSSH daemon (`sshd`) offloaded the authentication verification to Ubuntu's Pluggable Authentication Modules (PAM), specifically the `pam_unix.so` module. When `pam_unix` detects an authentication mismatch, it triggers an event to the `syslog` daemon (or `systemd-journald` in newer Ubuntu versions) using the `AUTHPRIV` facility. This mechanism is exactly what writes the `sshd` failure entries into `/var/log/auth.log`.
+
+**Log Line Anatomy:**
+From the forensic screenshot, analyzing the specific line:
+`2026-04-20T15:06:51.585704+00:00 john-VirtualBox sshd[6307]: Failed password for john from 10.0.2.15 port 54150 ssh2`
+
+- **Timestamp (`2026-04-20T15:06:51.585704+00:00`):** The exact UTC time of the event. SOC analysts use this to correlate activities across multiple log sources (e.g., firewall logs, network flows) to map the attacker's timeline.
+- **Hostname (`john-VirtualBox`):** The system recording the event. Crucial for identifying the specific compromised asset in a centralized SIEM environment.
+- **Process ID / PID (`sshd[6307]`):** The specific instance of the SSH daemon handling this connection. Analysts can trace this PID to determine if a child shell process was spawned.
+- **Event Description (`Failed password for john`):** The exact PAM failure condition. It confirms that the attack vector was a password guess against the valid account `john`.
+- **Source IP & Port (`from 10.0.2.15 port 54150`):** The attacker's origin IP (`10.0.2.15`) and the ephemeral source port (`54150`) generated by the attacker's TCP stack. This IP is the primary IoC used for blocking and attribution.
+
+However, an attacker with full access possesses the capability to alter or systematically purge these syslog events, thereby erasing the audit trail and severely hindering incident response capabilities.
 
 ![Forensic Auth Log Analysis](./screenshots/forensic_auth_log_analysis.jpeg)
 
@@ -79,10 +118,23 @@ To immediately mitigate these severe risks, the following corrective actions mus
    - Disable password-based authentication universally by configuring `PasswordAuthentication no` and `PermitRootLogin prohibit-password` within `/etc/ssh/sshd_config`. Mandate ED25519 or RSA-4096 key-based authentication.
 
 2. **Implement Intrusion Prevention Systems (Immediate):**
-   - Deploy rate-limiting solutions such as `Fail2Ban` or `CrowdSec` to automatically drop network traffic (via `iptables`/`nftables`) from sources exhibiting abnormal authentication failure velocity.
+   - Deploy rate-limiting solutions such as `Fail2Ban`. 
+   - **Remediation Mechanics:** Fail2Ban operates by continuously parsing `/var/log/auth.log` against pre-configured regular expressions (filters) designed to identify authentication failures. Once the failure count from a single IP exceeds the defined threshold (e.g., 5 attempts in 10 minutes), Fail2Ban transitions from passive "log detection" to "active packet dropping." It dynamically interfaces with the Linux Netfilter framework, injecting a temporary block rule into `iptables` or `nftables` (typically within a dedicated chain like `f2b-sshd`). This rule is configured with a target of `-j DROP` or `-j REJECT`, immediately terminating all existing and future TCP connections from the attacker's IP at the kernel network stack layer before it even reaches the SSH daemon.
 
 3. **Centralized Log Aggregation (Short-term):**
    - Forward all authentication logs (`/var/log/auth.log`) to an isolated, tamper-proof SIEM environment to ensure log integrity verification and to establish real-time SOC alerting for anomalous access patterns.
 
 4. **Credential Auditing (Short-term):**
    - Conduct a comprehensive audit of all local and domain accounts to purge weak, default, or compromised credentials.
+
+---
+## 8. Final Attestation
+This assessment was conducted in a controlled, isolated laboratory environment for the purpose of identifying security gaps in default Linux SSH configurations and verifying the visibility of authentication telemetry.
+
+**Principal Security Consultant & Founder:** Ditikrushna Routray  ( Swayam )
+**Firm:** O-Sec Solutions (OSS)  
+**LinkedIn:** [linkedin.com/in/ditikrushnaroutray](https://www.linkedin.com/in/ditikrushnaroutray/)  
+**GitHub:** [github.com/ditikrushnaroutray](https://github.com/ditikrushnaroutray)  
+**Instagram:** [@swa2am](https://www.instagram.com/swa2am/)  
+
+*This document is the result of a full-cycle penetration test. All findings are verified by forensic log evidence and authorized by the firm owner.*

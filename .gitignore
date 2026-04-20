@@ -1,0 +1,24 @@
+# OS Metadata
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Text Editor / IDE temporary files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# VirtualBox logs (if you export them to this folder)
+*.log
+*.vbox-prev
+
+# Security - Prevent accidental credential leaks
+*.pem
+*.key
+.env
+auth_token.txt
+
+# Keep the screenshots folder, but ignore hidden system files inside it
+screenshots/.DS_Store

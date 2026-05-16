@@ -132,7 +132,7 @@ To immediately mitigate these severe risks, the following corrective actions mus
 This assessment was conducted in a controlled, isolated laboratory environment for the purpose of identifying security gaps in default Linux SSH configurations and verifying the visibility of authentication telemetry.
 
 **Principal Security Consultant & Founder:** Ditikrushna Routray  ( Swayam )
-**Firm:** O-Sec Solutions (OSS)  
+**Firm:** Fluxion Sec
 **LinkedIn:** [linkedin.com/in/ditikrushnaroutray](https://www.linkedin.com/in/ditikrushnaroutray/)  
 **GitHub:** [github.com/ditikrushnaroutray](https://github.com/ditikrushnaroutray)  
 **Instagram:** [@swa2am](https://www.instagram.com/swa2am/)  

@@ -133,6 +133,7 @@ This assessment was conducted in a controlled, isolated laboratory environment f
 
 **Principal Security Consultant & Founder:** Ditikrushna Routray  ( Swayam )
 **Firm:** Fluxion Sec
+
 **LinkedIn:** [linkedin.com/in/ditikrushnaroutray](https://www.linkedin.com/in/ditikrushnaroutray/)  
 **GitHub:** [github.com/ditikrushnaroutray](https://github.com/ditikrushnaroutray)  
 **Instagram:** [@swa2am](https://www.instagram.com/swa2am/)  
